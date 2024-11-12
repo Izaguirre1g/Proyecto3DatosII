@@ -3,7 +3,9 @@ import logger from 'morgan'
 import dotenv from 'dotenv'
 import { createClient } from '@libsql/client'
 
+//Servidor de socket.io
 import { Server } from 'socket.io'
+//Módulo para crear servidores HTTP
 import { createServer } from 'node:http'
 
 dotenv.config()
@@ -11,13 +13,16 @@ dotenv.config()
 const port = process.env.PORT ?? 3000
 
 const app = express()
+//Aquí se crea el servidor HTTP de Node.js
 const server = createServer(app)
+// Socket Input/Ouput, dirección bidireccional
 const io = new Server(server, {
+    //Evita la pérdida de información por unos segundos
     connectionStateRecovery: {}
 })
-
+//Crea la conexión con Turso (Base de datos)
 const db = createClient({
-    url: "libsql://fleet-gravity-araya.turso.io",
+    url: "libsql://distinct-maximum-alchemist-krypto.turso.io",
     authToken: process.env.DB_TOKEN
 })
 
@@ -28,14 +33,20 @@ await db.execute(`
         user TEXT
     )
 `)
-
+//Siempre está escuchando cuando se conectan o desconectan los usuarios
+//Un socket es una conexión en concreto
 io.on('connection', async (socket) => {
-    console.log('a user has connected!')
+    console.log('Se ha conectado un usuario')
 
     socket.on('disconnect', () => {
-        console.log('a user has disconnected!')
+        console.log('Se ha desconectado un usuario')
     })
-
+    /**Prepara al servidor para que cuando reciba mensajes realice una acción en concreto
+     * 
+     * 
+     * 
+     * 
+     */
     socket.on('chat message', async (msg) => {
         let result
         const username = socket.handshake.auth.username ?? 'anonymous'
@@ -48,7 +59,7 @@ io.on('connection', async (socket) => {
             console.error(e)
             return
         }
-
+        //Realiza un broadcast para todos los usuarios conectados
         io.emit('chat message', msg, result.lastInsertRowid.toString(), username)
     })
 
@@ -71,9 +82,16 @@ io.on('connection', async (socket) => {
 app.use(logger('dev'))
 
 app.get('/', (req,res) => {
+    //Indica desde donde se ha inicializado el proceso
     res.sendFile(process.cwd() + '/client/index.html')
 })
-
+//Escucha del puerto dado donde se conecta la página
 server.listen(port, () => {
     console.log(`Server running on port ${port}`)
 })
+
+
+/*
+**Referencias**
+Código basado en https://www.youtube.com/watch?v=WpbBhTx5R9Q
+*/
