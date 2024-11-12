@@ -8,7 +8,7 @@ import { Server } from 'socket.io'
 //Módulo para crear servidores HTTP
 import { createServer } from 'node:http'
 
-dotenv.config()
+dotenv.config()//Lee la variable de entorno
 
 const port = process.env.PORT ?? 3000
 
@@ -25,7 +25,7 @@ const db = createClient({
     url: "libsql://distinct-maximum-alchemist-krypto.turso.io",
     authToken: process.env.DB_TOKEN
 })
-
+//Creación de una tabla en SQL
 await db.execute(`
     CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,33 +44,38 @@ io.on('connection', async (socket) => {
     /**Prepara al servidor para que cuando reciba mensajes realice una acción en concreto
      * 
      * 
-     * 
-     * 
      */
     socket.on('chat message', async (msg) => {
+        //Intenta registrar los mensajes en la base de datos
         let result
+        //Obtiene el username
         const username = socket.handshake.auth.username ?? 'anonymous'
         try {
             result = await db.execute({
                 sql: 'INSERT INTO messages (content, user) VALUES (:msg, :username)',
-                args: { msg, username }
+                args: { msg, username } //Evita los SQL Injection 
             })
         } catch (e) {
             console.error(e)
             return
         }
         //Realiza un broadcast para todos los usuarios conectados
+        //id convertida en un string
         io.emit('chat message', msg, result.lastInsertRowid.toString(), username)
     })
-
+    //Recupera los mensajes sin conexión
     if (!socket.recovered) {
         try {
             const results = await db.execute({
+                //Es donde se envía la información de la conexión
+                //Recupera los mensajes
                 sql: 'SELECT id, content, user FROM messages WHERE id > ?',
                 args: [socket.handshake.auth.serverOffset ?? 0]
             })
 
             results.rows.forEach(row => {
+                //Cada línea que tengamos se va a emitir a nivel de Sockets
+                //Es la información que se envía en cada mensaje a la BD
                 socket.emit('chat message', row.content, row.id.toString(), row.user)
             })
         } catch (e) {
