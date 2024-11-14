@@ -1,14 +1,12 @@
-import crypto from 'crypto';
 import express from 'express';
 import logger from 'morgan';
 import dotenv from 'dotenv';
 import { createClient } from '@libsql/client';
-
 //Servidor de socket.io
-import { Server } from 'socket.io'
+import { Server } from 'socket.io';
 //Módulo para crear servidores HTTP
-import { createServer } from 'node:http'
-import { strict } from 'assert';
+import { createServer } from 'node:http';
+import { encriptar } from './encryption.js';  // Importamos la función de encriptación
 
 dotenv.config();//Lee la variable de entorno
 
@@ -21,11 +19,13 @@ const io = new Server(server, {
     //Evita la pérdida de información por unos segundos
     connectionStateRecovery: {}
 });
+
 //Crea la conexión con Turso (Base de datos)
 const db = createClient({
     url: "libsql://distinct-maximum-alchemist-krypto.turso.io",
     authToken: process.env.DB_TOKEN
 });
+
 //Creación de una tabla en SQL
 await db.execute(`
     CREATE TABLE IF NOT EXISTS messages (
@@ -35,44 +35,29 @@ await db.execute(`
         iv TEXT
     )
 `);
-//Líneas necesarias para la encriptación
-const algoritmo = 'aes-256-cbc';//Algoritmo para la encriptación
-const key = crypto.randomBytes(32);//
-const iv = crypto.randomBytes(16);//
-var text;
 
 //Siempre está escuchando cuando se conectan o desconectan los usuarios
 //Un socket es una conexión en concreto
 io.on('connection', async (socket) => {
-    console.log('Se ha conectado un usuario');
+    console.log('Se ha conectado un usuario.');
+
+    socket.on('disconnect', () => {
+        console.log('Se ha desconectado un usuario.')
+    });
 
     socket.on('chat message', async (msg) => {
         let result;
         const username = socket.handshake.auth.username ?? 'anonymous';
-    
         //msg y username deben ser cadenas de texto
         const mensaje = msg ?? '';  // Si msg es undefined, usa una cadena vacía
         const user = username ?? 'anonymous';  // Si username es undefined, usa 'anonymous'
-    
-        //Función de encriptación para el mensaje y el nombre de usuario
-        const encriptar = (text) => {
-            if (typeof text !== 'string') {
-                throw new Error('El texto debe ser una cadena');
-            }
-            const cipher = crypto.createCipheriv(algoritmo, key, iv);
-            const encrypted = Buffer.concat([cipher.update(text), cipher.final()]);
-            return {
-                iv: iv.toString('hex'),
-                encrypted: encrypted.toString('hex')
-            };
-        };
-    
-        // Encriptamos el mensaje y el nombre de usuario
+
+        //Encriptación del mensaje y el nombre de usuario
         const encryptedMsg = encriptar(mensaje);
         const encryptedUsername = encriptar(user);
-    
+
         try {
-            // Inserta los datos encriptados y el iv en la base de datos
+            //Inserta los datos encriptados y el iv en la base de datos
             result = await db.execute({
                 sql: 'INSERT INTO messages (content, user, iv) VALUES (:msg, :username, :iv)',
                 //Evita los SQL Injection 
@@ -86,11 +71,10 @@ io.on('connection', async (socket) => {
             console.error(e);
             return;
         }
-    
-        //Emite el mensaje encriptado a los demás usuarios
+
+        //Emite el mensaje encriptado a todos los usuarios
         io.emit('chat message', encryptedMsg.encrypted, result.lastInsertRowid.toString(), encryptedUsername.encrypted);
     });
-    
 
     //Recupera los mensajes sin conexión
     if (!socket.recovered) {
@@ -114,7 +98,6 @@ io.on('connection', async (socket) => {
 });
 
 app.use(logger('dev'));
-
 //Sirve archivos estáticos desde la carpeta 'client'
 app.use(express.static('client'));
 
@@ -126,6 +109,7 @@ app.get('/', (req, res) => {
 server.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
+
 
 
 /*
