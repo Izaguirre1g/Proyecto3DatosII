@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import express from 'express';
 import logger from 'morgan';
 import dotenv from 'dotenv';
@@ -7,6 +8,7 @@ import { createClient } from '@libsql/client';
 import { Server } from 'socket.io'
 //Módulo para crear servidores HTTP
 import { createServer } from 'node:http'
+import { strict } from 'assert';
 
 dotenv.config();//Lee la variable de entorno
 
@@ -29,37 +31,67 @@ await db.execute(`
     CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         content TEXT,
-        user TEXT
+        user TEXT,
+        iv TEXT
     )
 `);
+//Líneas necesarias para la encriptación
+const algoritmo = 'aes-256-cbc';//Algoritmo para la encriptación
+const key = crypto.randomBytes(32);//
+const iv = crypto.randomBytes(16);//
+var text;
+
 //Siempre está escuchando cuando se conectan o desconectan los usuarios
 //Un socket es una conexión en concreto
 io.on('connection', async (socket) => {
     console.log('Se ha conectado un usuario');
 
-    socket.on('disconnect', () => {
-        console.log('Se ha desconectado un usuario');
-    });
-     /**Prepara al servidor para que cuando reciba mensajes realice una acción en concreto
-     */
     socket.on('chat message', async (msg) => {
-        //Intenta registrar los mensajes en la base de datos
         let result;
-        //Obtiene el username
         const username = socket.handshake.auth.username ?? 'anonymous';
+    
+        //msg y username deben ser cadenas de texto
+        const mensaje = msg ?? '';  // Si msg es undefined, usa una cadena vacía
+        const user = username ?? 'anonymous';  // Si username es undefined, usa 'anonymous'
+    
+        //Función de encriptación para el mensaje y el nombre de usuario
+        const encriptar = (text) => {
+            if (typeof text !== 'string') {
+                throw new Error('El texto debe ser una cadena');
+            }
+            const cipher = crypto.createCipheriv(algoritmo, key, iv);
+            const encrypted = Buffer.concat([cipher.update(text), cipher.final()]);
+            return {
+                iv: iv.toString('hex'),
+                encrypted: encrypted.toString('hex')
+            };
+        };
+    
+        // Encriptamos el mensaje y el nombre de usuario
+        const encryptedMsg = encriptar(mensaje);
+        const encryptedUsername = encriptar(user);
+    
         try {
+            // Inserta los datos encriptados y el iv en la base de datos
             result = await db.execute({
-                sql: 'INSERT INTO messages (content, user) VALUES (:msg, :username)',
-                args: { msg, username }//Evita los SQL Injection 
+                sql: 'INSERT INTO messages (content, user, iv) VALUES (:msg, :username, :iv)',
+                //Evita los SQL Injection 
+                args: { 
+                    msg: encryptedMsg.encrypted, 
+                    username: encryptedUsername.encrypted, 
+                    iv: encryptedMsg.iv
+                } 
             });
         } catch (e) {
             console.error(e);
             return;
         }
-        //Realiza un broadcast para todos los usuarios conectados
-        //id convertida en un string
-        io.emit('chat message', msg, result.lastInsertRowid.toString(), username);
+    
+        //Emite el mensaje encriptado a los demás usuarios
+        io.emit('chat message', encryptedMsg.encrypted, result.lastInsertRowid.toString(), encryptedUsername.encrypted);
     });
+    
+
     //Recupera los mensajes sin conexión
     if (!socket.recovered) {
         try {
@@ -98,5 +130,7 @@ server.listen(port, () => {
 
 /*
 **Referencias**
-Código basado en https://www.youtube.com/watch?v=WpbBhTx5R9Q
+Código basado en 
+https://www.youtube.com/watch?v=WpbBhTx5R9Q
+https://www.youtube.com/watch?v=62P2rY_7Zc4
 */
