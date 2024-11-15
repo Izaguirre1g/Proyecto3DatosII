@@ -6,7 +6,7 @@ import { createClient } from '@libsql/client';
 import { Server } from 'socket.io';
 //Módulo para crear servidores HTTP
 import { createServer } from 'node:http';
-import { encriptar } from './encryption.js';  // Importamos la función de encriptación
+import { encriptar, desencriptar } from './encryption.js';  // Importamos la función de encriptación
 
 dotenv.config();//Lee la variable de entorno
 
@@ -31,8 +31,9 @@ await db.execute(`
     CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         content TEXT,
+        ivContent TEXT,
         user TEXT,
-        iv TEXT
+        ivUser TEXT
     )
 `);
 
@@ -59,12 +60,13 @@ io.on('connection', async (socket) => {
         try {
             //Inserta los datos encriptados y el iv en la base de datos
             result = await db.execute({
-                sql: 'INSERT INTO messages (content, user, iv) VALUES (:msg, :username, :iv)',
+                sql: 'INSERT INTO messages (content, ivContent, user, ivUser) VALUES (:msg, :ivContent, :username, :ivUser)',
                 //Evita los SQL Injection 
                 args: { 
                     msg: encryptedMsg.encrypted, 
+                    ivContent: encryptedMsg.iv,
                     username: encryptedUsername.encrypted, 
-                    iv: encryptedMsg.iv
+                    ivUser: encryptedUsername.iv
                 } 
             });
         } catch (e) {
@@ -72,8 +74,16 @@ io.on('connection', async (socket) => {
             return;
         }
 
-        //Emite el mensaje encriptado a todos los usuarios
-        io.emit('chat message', encryptedMsg.encrypted, result.lastInsertRowid.toString(), encryptedUsername.encrypted);
+
+        // Aquí se desencriptan los mensajes y nombres de usuario antes de emitirlos
+        const decryptedMsg = desencriptar(encryptedMsg.encrypted, encryptedMsg.iv);
+        const decryptedUsername = desencriptar(encryptedUsername.encrypted, encryptedUsername.iv);
+
+        //Emite los mensajes desencriptados a todos los usuarios
+        io.emit('chat message', decryptedMsg, result.lastInsertRowid.toString(), decryptedUsername);
+
+
+        //io.emit('chat message', encryptedMsg.encrypted, result.lastInsertRowid.toString(), encryptedUsername.encrypted);
     });
 
     //Recupera los mensajes sin conexión
@@ -82,14 +92,21 @@ io.on('connection', async (socket) => {
             const results = await db.execute({
                 //Es donde se envía la información de la conexión
                 //Recupera los mensajes
-                sql: 'SELECT id, content, user FROM messages WHERE id > ?',
+                sql: 'SELECT id, content, ivContent, user, ivUser FROM messages WHERE id > ?',
                 args: [socket.handshake.auth.serverOffset ?? 0]
             });
 
             results.rows.forEach(row => {
+                // Desencriptar el mensaje y el nombre de usuario antes de enviarlos al cliente
+                const decryptedContent = desencriptar(row.content, row.ivUser);//row.ivContent
+                const decryptedUser = desencriptar(row.user,row.ivContent );//row.ivUser
+                
+                // Emitir los mensajes desencriptados
+                socket.emit('chat message', decryptedContent, row.id.toString(), decryptedUser);
                 //Cada línea que tengamos se va a emitir a nivel de Sockets
                 //Es la información que se envía en cada mensaje a la BD
-                socket.emit('chat message', row.content, row.id.toString(), row.user);
+                //Muestra los mensajes antiguos
+                //socket.emit('chat message', row.content, row.id.toString(), row.user);
             });
         } catch (e) {
             console.error(e);
