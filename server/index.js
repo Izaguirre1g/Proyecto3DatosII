@@ -6,7 +6,7 @@ import { createClient } from '@libsql/client';
 import { Server } from 'socket.io';
 //Módulo para crear servidores HTTP
 import { createServer } from 'node:http';
-import { encriptar, desencriptar } from './encryption.js';  // Importamos la función de encriptación
+import { encriptar, desencriptar } from './encryption.js';//Se importa el archivo de la encriptación
 
 dotenv.config();//Lee la variable de entorno
 
@@ -50,13 +50,14 @@ io.on('connection', async (socket) => {
         let result;
         const username = socket.handshake.auth.username ?? 'anonymous';
         //msg y username deben ser cadenas de texto
-        const mensaje = msg ?? '';  // Si msg es undefined, usa una cadena vacía
-        const user = username ?? 'anonymous';  // Si username es undefined, usa 'anonymous'
+        const mensaje = msg ?? '';//Si msg es undefined, usa una cadena vacía
+        const user = username ?? 'anonymous';//Si username es undefined, usa 'anonymous'
 
         //Encriptación del mensaje y el nombre de usuario
         const encryptedMsg = encriptar(mensaje);
         const encryptedUsername = encriptar(user);
-
+        console.log('Mensaje encriptado:', encryptedMsg);
+        console.log('Usuario encriptado:', encryptedUsername);
         try {
             //Inserta los datos encriptados y el iv en la base de datos
             result = await db.execute({
@@ -74,7 +75,7 @@ io.on('connection', async (socket) => {
             return;
         }
 
-
+      
         // Aquí se desencriptan los mensajes y nombres de usuario antes de emitirlos
         const decryptedMsg = desencriptar(encryptedMsg.encrypted, encryptedMsg.iv);
         const decryptedUsername = desencriptar(encryptedUsername.encrypted, encryptedUsername.iv);
@@ -97,15 +98,20 @@ io.on('connection', async (socket) => {
             });
 
             results.rows.forEach(row => {
-                // Desencriptar el mensaje y el nombre de usuario antes de enviarlos al cliente
-                const decryptedContent = desencriptar(row.content, row.ivUser);//row.ivContent
-                const decryptedUser = desencriptar(row.user,row.ivContent );//row.ivUser
+                console.log('Fila recuperada de la base de datos:', row);
+                console.log('Contenido desencriptado:', desencriptar(row.content, row.ivContent));
+                console.log('Usuario desencriptado:', desencriptar(row.user, row.ivUser));
+
+                //Desencripta el mensaje y el nombre de usuario antes de enviarlos al cliente
+                const decryptedContent = desencriptar(row.content, row.ivContent);
+                const decryptedUser = desencriptar(row.user,row.ivUser );
                 
-                // Emitir los mensajes desencriptados
-                socket.emit('chat message', decryptedContent, row.id.toString(), decryptedUser);
                 //Cada línea que tengamos se va a emitir a nivel de Sockets
                 //Es la información que se envía en cada mensaje a la BD
                 //Muestra los mensajes antiguos
+                //Emite los mensajes desencriptados desde la base de datos
+                socket.emit('chat message', decryptedContent, row.id.toString(), decryptedUser);
+                
                 //socket.emit('chat message', row.content, row.id.toString(), row.user);
             });
         } catch (e) {
@@ -126,7 +132,6 @@ app.get('/', (req, res) => {
 server.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
-
 
 
 /*
