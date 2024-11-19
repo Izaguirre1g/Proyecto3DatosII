@@ -1,79 +1,126 @@
-import express from 'express'
-import logger from 'morgan'
-import dotenv from 'dotenv'
-import { createClient } from '@libsql/client'
+import express from 'express';
+import logger from 'morgan';
+import dotenv from 'dotenv';
+import { createClient } from '@libsql/client';
+import { Server } from 'socket.io';
+import https from 'https';
+import fs from 'fs';
+import { encriptar, desencriptar } from './encryption.js';
 
-import { Server } from 'socket.io'
-import { createServer } from 'node:http'
+dotenv.config(); // Carga las variables de entorno
 
-dotenv.config()
+const port = process.env.PORT ?? 3000;
 
-const port = process.env.PORT ?? 3000
+// Carga de certificados SSL/TLS
+const sslOptions = {
+    key: fs.readFileSync('C:/Users/araya/curso-node-js/clase-6/cert/private-key.pem'),
+    cert: fs.readFileSync('C:/Users/araya/curso-node-js/clase-6/cert/certificate.pem')
+};
 
-const app = express()
-const server = createServer(app)
-const io = new Server(server, {
-    connectionStateRecovery: {}
-})
+const app = express();
+const httpsServer = https.createServer(sslOptions, app);
+const io = new Server(httpsServer, {
+    cors: {
+        origin: "https://localhost:3000",
+        methods: ["GET", "POST"]
+    }
+});
 
+// Base de datos
 const db = createClient({
     url: "libsql://fleet-gravity-araya.turso.io",
     authToken: process.env.DB_TOKEN
-})
+});
 
+// Crear tabla si no existe
 await db.execute(`
     CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         content TEXT,
-        user TEXT
+        ivContent TEXT,
+        user TEXT,
+        ivUser TEXT
     )
-`)
+`);
 
 io.on('connection', async (socket) => {
-    console.log('a user has connected!')
+    console.log('Usuario conectado:', socket.id);
 
     socket.on('disconnect', () => {
-        console.log('a user has disconnected!')
-    })
+        console.log('Usuario desconectado:', socket.id);
+    });
 
+    // Manejo de mensajes entrantes
     socket.on('chat message', async (msg) => {
-        let result
-        const username = socket.handshake.auth.username ?? 'anonymous'
+        console.log('Mensaje recibido del cliente:', msg);
+
+        const username = socket.handshake.auth.username ?? 'anonymous';
+        console.log('Nombre de usuario:', username);
+
+        const encryptedMsg = encriptar(msg ?? '');
+        const encryptedUsername = encriptar(username);
+
+        console.log('Mensaje encriptado:', encryptedMsg);
+        console.log('Usuario encriptado:', encryptedUsername);
+
         try {
-            result = await db.execute({
-                sql: 'INSERT INTO messages (content, user) VALUES (:msg, :username)',
-                args: { msg, username }
-            })
+            const result = await db.execute({
+                sql: 'INSERT INTO messages (content, ivContent, user, ivUser) VALUES (:msg, :ivContent, :username, :ivUser)',
+                args: { 
+                    msg: encryptedMsg.encrypted, 
+                    ivContent: encryptedMsg.iv, 
+                    username: encryptedUsername.encrypted, 
+                    ivUser: encryptedUsername.iv 
+                }
+            });
+
+            console.log('Mensaje guardado en la base de datos con ID:', result.lastInsertRowid);
+
+            // Emitir el mensaje desencriptado
+            const decryptedMsg = desencriptar(encryptedMsg.encrypted, encryptedMsg.iv);
+            const decryptedUsername = desencriptar(encryptedUsername.encrypted, encryptedUsername.iv);
+            console.log('Mensaje desencriptado para emisión:', decryptedMsg);
+            console.log('Usuario desencriptado para emisión:', decryptedUsername);
+
+            io.emit('chat message', decryptedMsg, result.lastInsertRowid.toString(), decryptedUsername);
         } catch (e) {
-            console.error(e)
-            return
+            console.error('Error al guardar el mensaje:', e);
         }
+    });
 
-        io.emit('chat message', msg, result.lastInsertRowid.toString(), username)
-    })
-
+    // Recuperar mensajes anteriores
     if (!socket.recovered) {
         try {
             const results = await db.execute({
-                sql: 'SELECT id, content, user FROM messages WHERE id > ?',
+                sql: 'SELECT id, content, ivContent, user, ivUser FROM messages WHERE id > ?',
                 args: [socket.handshake.auth.serverOffset ?? 0]
-            })
+            });
+
+            console.log('Mensajes recuperados de la base de datos:', results.rows);
 
             results.rows.forEach(row => {
-                socket.emit('chat message', row.content, row.id.toString(), row.user)
-            })
+                const decryptedContent = desencriptar(row.content, row.ivContent);
+                const decryptedUser = desencriptar(row.user, row.ivUser);
+
+                console.log('Mensaje desencriptado:', decryptedContent);
+                console.log('Usuario desencriptado:', decryptedUser);
+
+                socket.emit('chat message', decryptedContent, row.id.toString(), decryptedUser);
+            });
         } catch (e) {
-            console.error(e)
+            console.error('Error al recuperar mensajes:', e);
         }
     }
-})
+});
 
-app.use(logger('dev'))
+app.use(logger('dev'));
+app.use(express.static('client'));
 
-app.get('/', (req,res) => {
-    res.sendFile(process.cwd() + '/client/index.html')
-})
+app.get('/', (req, res) => {
+    res.sendFile(process.cwd() + '/client/index.html');
+});
 
-server.listen(port, () => {
-    console.log(`Server running on port ${port}`)
-})
+// Iniciar el servidor HTTPS
+httpsServer.listen(port, () => {
+    console.log(`Servidor HTTPS corriendo en https://localhost:${port}`);
+});
