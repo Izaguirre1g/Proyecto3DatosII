@@ -51,8 +51,6 @@ export const desencriptar = (encryptedText, iv) => {
     //Convierte el resultado a string
     return decrypted.toString();
 };
-
-
 /*
 **Referencias**
 Código basado en 
