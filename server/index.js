@@ -146,7 +146,7 @@ httpsServer.listen(port, () => {
     console.log(`Servidor HTTPS corriendo en https://localhost:${port}`);
 });
 
-//Para Wireshark utilizar el filtro: tcp.port == 3000
+//Para Wireshark utilizar el filtro: tcp.port == 3000 en Adapter for loopack traffic capture
 
 /*
 **Referencias**
