@@ -1,7 +1,6 @@
 //Importación directa de Socket.io
 import { io } from 'https://cdn.socket.io/4.3.2/socket.io.esm.min.js';
 
-//Mueve la función getUsername antes de inicializar el socket
 //Genera los users de manera random
 //Función para obtener o generar un nombre de usuario
 const getUsername = async () => {
@@ -17,7 +16,7 @@ const getUsername = async () => {
 const username = await getUsername();
 
 //Conexión al servidor WebSocket
-const socket = io('https://localhost:3000', { // Cambia por tu dominio o dirección
+const socket = io('https://localhost:3000', {
     //Identifica el último chat, lo que envía en el mensaje
     auth: { 
       username, 
@@ -56,7 +55,7 @@ socket.on('chat message', (msg, serverOffset, username) => {
     messages.scrollTop = messages.scrollHeight;
 });
 
-// Enviar mensaje
+//Envia mensaje
 form.addEventListener('submit', (e) => {
     e.preventDefault();//Evita que el formulario haga un GET
     if (input.value) {

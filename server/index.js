@@ -1,9 +1,9 @@
-import express from 'express';
-import logger from 'morgan';
-import dotenv from 'dotenv';
-import { createClient } from '@libsql/client';
+import express from 'express';//Es un framework para crear el Server en Node.js
+import logger from 'morgan';//Hace un camino de trazas
+import dotenv from 'dotenv';//Lectura de variables de entorno (.env)
+import { createClient } from '@libsql/client';//Creación de clientes
 //Servidor de socket.io
-import { Server } from 'socket.io';
+import { Server } from 'socket.io';//Permite la comunicación client-server-client
 import https from 'https';
 import fs from 'fs';
 //Se importa el archivo de la encriptación
@@ -15,6 +15,7 @@ const port = process.env.PORT ?? 3000;
 
 //Carga de certificados SSL/TLS
 const sslOptions = {
+    //Certificados autofirmados por nosotros mismos
     key: fs.readFileSync('C:/Users/Jose/Desktop/Proyecto3DatosII/cert/private-key.pem'),
     cert: fs.readFileSync('C:/Users/Jose/Desktop/Proyecto3DatosII/cert/certificate.pem')
 };
@@ -57,7 +58,7 @@ io.on('connection', async (socket) => {
         console.log('Usuario desconectado:', socket.id);
     });
 
-    // Manejo de mensajes entrantes
+    //Manejo de mensajes entrantes
     socket.on('chat message', async (msg) => {
         console.log('Mensaje recibido del cliente:', msg);
 
@@ -147,6 +148,7 @@ httpsServer.listen(port, () => {
 });
 
 //Para Wireshark utilizar el filtro: tcp.port == 3000 en Adapter for loopack traffic capture
+//Esto es para la creción del certificado: openssl req -nodes -new -x509 -keyout private-key.pem -out certificate.pem -days 365
 
 /*
 **Referencias**
